@@ -66,6 +66,17 @@ class JenkinsfileContractTest {
     }
 
     @Test
+    void defaultsToJenkinsManagedMavenToolAndPrependsBin() {
+        assertTrue(jenkinsfile.contains("tools {"));
+        assertTrue(jenkinsfile.contains("maven 'Maven-3.9.11'"));
+        assertTrue(jenkinsfile.contains("DEFAULT_MAVEN_TOOL = 'Maven-3.9.11'"));
+        assertTrue(jenkinsfile.contains("tool(mavenTool)"));
+        assertTrue(jenkinsfile.contains("PATH+MAVEN=${binDir}"));
+        assertFalse(jenkinsfile.contains("using mvn from PATH"));
+        assertTrue(jenkinsfile.contains("Could not resolve Maven"));
+    }
+
+    @Test
     void bracesAreBalanced() {
         int curly = 0;
         int paren = 0;

@@ -10,12 +10,12 @@ pipeline {
         string(
             name: 'MAVEN_HOME',
             defaultValue: '',
-            description: 'Optional Maven home or Maven bin directory. Also reads env MAVEN_HOME. Leave empty to use a Jenkins Maven tool or PATH.'
+            description: 'Optional Maven home or Maven bin directory. Also reads env MAVEN_HOME. Leave empty to use MAVEN_TOOL or Maven-3.9.11.'
         )
         string(
             name: 'MAVEN_TOOL',
             defaultValue: '',
-            description: 'Optional Jenkins Global Tool Configuration Maven installation name. Also reads env MAVEN_TOOL.'
+            description: 'Optional Jenkins Global Tool Configuration Maven installation name. Leave empty to use Maven-3.9.11. Also reads env MAVEN_TOOL.'
         )
         string(
             name: 'LOG_INGEST_URL',
@@ -66,6 +66,11 @@ pipeline {
 
     environment {
         FAIL_SCENARIO = "${params.FAIL_SCENARIO ?: 'none'}"
+        DEFAULT_MAVEN_TOOL = 'Maven-3.9.11'
+    }
+
+    tools {
+        maven 'Maven-3.9.11'
     }
 
     stages {
@@ -267,15 +272,14 @@ def postConsoleLog() {
 }
 
 def withMavenOnPath(Closure body) {
-    def mavenTool = firstNonBlank(params.MAVEN_TOOL, env.MAVEN_TOOL)
-    def mavenHome = firstNonBlank(params.MAVEN_HOME, env.MAVEN_HOME)
-    if (mavenTool) {
+    def mavenHome = firstNonBlank(params.MAVEN_HOME)
+    def mavenTool = firstNonBlank(params.MAVEN_TOOL, env.MAVEN_TOOL, env.DEFAULT_MAVEN_TOOL, 'Maven-3.9.11')
+    if (!mavenHome) {
+        echo "[maven] Resolving Jenkins Maven tool: ${mavenTool}"
         mavenHome = tool(mavenTool)
     }
     if (!mavenHome) {
-        echo '[maven] MAVEN_HOME / MAVEN_TOOL not set; using mvn from PATH.'
-        body()
-        return
+        error("[maven] Could not resolve Maven. Configure Global Tool '${mavenTool}' or set MAVEN_HOME.")
     }
     def binDir = mavenBinDir(mavenHome)
     echo "[maven] Prepending Maven bin to PATH: ${binDir}"
