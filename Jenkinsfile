@@ -54,10 +54,6 @@ pipeline {
         )
     }
 
-    options {
-        timestamps()
-    }
-
     environment {
         FAIL_SCENARIO = "${params.FAIL_SCENARIO ?: 'none'}"
     }
