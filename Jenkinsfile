@@ -8,6 +8,16 @@ pipeline {
             description: 'Opt-in Maven/Surefire failure. Use none for a green build.'
         )
         string(
+            name: 'MAVEN_HOME',
+            defaultValue: '',
+            description: 'Optional Maven home or Maven bin directory. Also reads env MAVEN_HOME. Leave empty to use a Jenkins Maven tool or PATH.'
+        )
+        string(
+            name: 'MAVEN_TOOL',
+            defaultValue: '',
+            description: 'Optional Jenkins Global Tool Configuration Maven installation name. Also reads env MAVEN_TOOL.'
+        )
+        string(
             name: 'LOG_INGEST_URL',
             defaultValue: '',
             description: 'Optional ingest URL. Leave empty to skip upload. Also reads env LOG_INGEST_URL.'
@@ -68,24 +78,26 @@ pipeline {
         stage('Build and Test') {
             steps {
                 script {
-                    if (isUnix()) {
-                        sh '''
-                            set -e
-                            if [ -n "$FAIL_SCENARIO" ] && [ "$FAIL_SCENARIO" != "none" ]; then
-                              mvn -B clean test -Dfail.scenario="$FAIL_SCENARIO"
-                            else
-                              mvn -B clean test
-                            fi
-                        '''
-                    } else {
-                        bat '''
-                            @echo off
-                            if /I not "%FAIL_SCENARIO%"=="none" if not "%FAIL_SCENARIO%"=="" (
-                              mvn -B clean test -Dfail.scenario=%FAIL_SCENARIO%
-                              goto :eof
-                            )
-                            mvn -B clean test
-                        '''
+                    withMavenOnPath {
+                        if (isUnix()) {
+                            sh '''
+                                set -e
+                                if [ -n "$FAIL_SCENARIO" ] && [ "$FAIL_SCENARIO" != "none" ]; then
+                                  mvn -B clean test -Dfail.scenario="$FAIL_SCENARIO"
+                                else
+                                  mvn -B clean test
+                                fi
+                            '''
+                        } else {
+                            bat '''
+                                @echo off
+                                if /I not "%FAIL_SCENARIO%"=="none" if not "%FAIL_SCENARIO%"=="" (
+                                  mvn -B clean test -Dfail.scenario=%FAIL_SCENARIO%
+                                  goto :eof
+                                )
+                                mvn -B clean test
+                            '''
+                        }
                     }
                 }
             }
@@ -94,10 +106,12 @@ pipeline {
         stage('Package') {
             steps {
                 script {
-                    if (isUnix()) {
-                        sh 'mvn -B package -DskipTests'
-                    } else {
-                        bat 'mvn -B package -DskipTests'
+                    withMavenOnPath {
+                        if (isUnix()) {
+                            sh 'mvn -B package -DskipTests'
+                        } else {
+                            bat 'mvn -B package -DskipTests'
+                        }
                     }
                 }
             }
@@ -250,6 +264,41 @@ def postConsoleLog() {
             exit 0
         '''
     }
+}
+
+def withMavenOnPath(Closure body) {
+    def mavenTool = firstNonBlank(params.MAVEN_TOOL, env.MAVEN_TOOL)
+    def mavenHome = firstNonBlank(params.MAVEN_HOME, env.MAVEN_HOME)
+    if (mavenTool) {
+        mavenHome = tool(mavenTool)
+    }
+    if (!mavenHome) {
+        echo '[maven] MAVEN_HOME / MAVEN_TOOL not set; using mvn from PATH.'
+        body()
+        return
+    }
+    def binDir = mavenBinDir(mavenHome)
+    echo "[maven] Prepending Maven bin to PATH: ${binDir}"
+    withEnv(["MAVEN_HOME=${mavenHomeDir(mavenHome)}", "PATH+MAVEN=${binDir}"]) {
+        body()
+    }
+}
+
+def mavenBinDir(String mavenHome) {
+    def normalized = mavenHome.replace('\\', '/').replaceAll('/+$', '')
+    if (normalized.toLowerCase().endsWith('/bin')) {
+        return mavenHome
+    }
+    return isUnix() ? "${mavenHome}/bin" : "${mavenHome}\\bin"
+}
+
+def mavenHomeDir(String mavenHome) {
+    def normalized = mavenHome.replace('\\', '/').replaceAll('/+$', '')
+    if (normalized.toLowerCase().endsWith('/bin')) {
+        def cut = mavenHome.length() >= 4 ? mavenHome.substring(0, mavenHome.length() - 4) : mavenHome
+        return cut.replaceAll('[\\\\/]+$', '')
+    }
+    return mavenHome
 }
 
 def firstNonBlank(Object... values) {

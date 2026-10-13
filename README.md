@@ -57,11 +57,24 @@ Default `mvn test` and `mvn package` stay green. Scenario tests run only when se
 2. New Item → **Pipeline**.
 3. Pipeline definition: **Pipeline script from SCM**.
 4. Repository URL: this project. Script Path: `Jenkinsfile`.
-5. On the Windows agent: `java -version` and `mvn -version` must work in a `bat` step.
+5. Give the **Jenkins Windows service** a Maven home. The service does not use your interactive user `PATH`, so `mvn` is often missing even when you can run it in a terminal.
+
+   Preferred (no path in the Jenkinsfile):
+
+   - **Node / global env:** Manage Jenkins → System → Global properties (or the agent **Environment variables**) → add `MAVEN_HOME` pointing at the Maven install directory or its `bin` folder.
+   - **Jenkins tool:** Manage Jenkins → Tools → Maven installations → add a named install, then set job parameter / env `MAVEN_TOOL` to that name.
+   - **Job parameter:** `MAVEN_HOME` on **Build with Parameters**.
+
+   Example on this machine (set in Jenkins env, not in source):
+
+   `C:\Users\Lenovo\.m2\wrapper\dists\apache-maven-3.9.11-bin\6mqf5t809d9geo83kj4ttckcbc\apache-maven-3.9.11`
+
+   The `bin` subdirectory is also accepted. Restart the Jenkins Windows service after changing machine-level environment variables.
 
 Build with parameters:
 
 - `FAIL_SCENARIO` — `none` for success, or a failure mode above.
+- `MAVEN_HOME` / `MAVEN_TOOL` — optional Maven location or Jenkins tool name (also reads env).
 - `LOG_INGEST_URL` — optional. Empty means **do not upload**.
 - `LOG_INGEST_CREDENTIAL_ID` — optional Secret Text credential ID.
 
@@ -119,7 +132,7 @@ Point `LOG_INGEST_URL` at that API’s ingest endpoint. If it expects different 
 | Symptom | What to check |
 | --- | --- |
 | Job cannot find `pom.xml` | Script Path is `Jenkinsfile` at the repo root; SCM checkout succeeded. |
-| `mvn` is not recognized | Install Maven on the **Windows agent** and ensure PATH is set for the Jenkins service user. |
+| `mvn` is not recognized | Jenkins is running as a Windows service and does not see your user PATH. Set `MAVEN_HOME` (or `MAVEN_TOOL`) on the node/job, or add Maven to the **system** PATH and restart the Jenkins service. |
 | Console file is a one-line fallback | Agent must GET `${BUILD_URL}consoleText` (same Jenkins, curl.exe on PATH). Restricting anonymous read of job logs can block this. |
 | Upload skipped | `LOG_INGEST_URL` blank on both the parameter and the job env. |
 | `Credentials not found` | `LOG_INGEST_CREDENTIAL_ID` must match a Secret Text credential visible to the job. Upload failure is non-fatal. |

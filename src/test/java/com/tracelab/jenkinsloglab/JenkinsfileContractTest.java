@@ -59,6 +59,10 @@ class JenkinsfileContractTest {
         assertFalse(jenkinsfile.contains("Bearer trc_"));
         assertTrue(jenkinsfile.contains("bat "));
         assertTrue(jenkinsfile.contains("non-fatal"));
+        assertTrue(jenkinsfile.contains("MAVEN_HOME"));
+        assertTrue(jenkinsfile.contains("MAVEN_TOOL"));
+        assertTrue(jenkinsfile.contains("PATH+MAVEN"));
+        assertFalse(jenkinsfile.contains(".m2\\\\wrapper"));
     }
 
     @Test
