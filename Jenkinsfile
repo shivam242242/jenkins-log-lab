@@ -238,7 +238,7 @@ def _captureUnix(String consoleLog, String curlAuthArgs) {
     withEnv(["CONSOLE_LOG=${consoleLog}"]) {
         def exitCode = sh(returnStatus: true, script: """
             set -e
-            HTTP_CODE=\$(curl -s -k --globoff -w "%{http_code}" -o "\${CONSOLE_LOG}" ${curlAuthArgs} "\${BUILD_URL}consoleText")
+            HTTP_CODE=\$(curl -sS -k --globoff -w "%{http_code}" -o "\${CONSOLE_LOG}" ${curlAuthArgs} "\${BUILD_URL}consoleText")
             if [ "\$HTTP_CODE" != "200" ]; then
               echo "[log-forward] consoleText fetch returned HTTP \$HTTP_CODE; discarding." >&2
               rm -f "\${CONSOLE_LOG}"
@@ -260,7 +260,7 @@ def _captureWindows(String consoleLog, boolean useCredentials) {
         scriptBody = '''
             $ErrorActionPreference = "Stop"
             $ProgressPreference = "SilentlyContinue"
-            $curlArgs = @("-s", "-k", "--globoff", "-w", "%{http_code}", "-o", $env:CONSOLE_LOG,
+            $curlArgs = @("-s", "-S", "-k", "--globoff", "-w", "%{http_code}", "-o", $env:CONSOLE_LOG,
                           "-u", "$($env:JENKINS_USER):$($env:JENKINS_TOKEN)",
                           "$($env:BUILD_URL)consoleText")
             $httpCode = & curl.exe @curlArgs
@@ -280,7 +280,7 @@ def _captureWindows(String consoleLog, boolean useCredentials) {
         scriptBody = '''
             $ErrorActionPreference = "Stop"
             $ProgressPreference = "SilentlyContinue"
-            $curlArgs = @("-s", "-k", "--globoff", "-w", "%{http_code}", "-o", $env:CONSOLE_LOG,
+            $curlArgs = @("-s", "-S", "-k", "--globoff", "-w", "%{http_code}", "-o", $env:CONSOLE_LOG,
                           "$($env:BUILD_URL)consoleText")
             $httpCode = & curl.exe @curlArgs
             if ($httpCode -ne "200") {
@@ -313,7 +313,7 @@ def postConsoleLog() {
             fi
             HTTP_CODE="000"
             if [ -n "$LOG_INGEST_TOKEN" ]; then
-              HTTP_CODE=$(curl -s -o ingest_response.body -w "%{http_code}" \
+              HTTP_CODE=$(curl -sS -o ingest_response.body -w "%{http_code}" \
                 -X POST "$LOG_INGEST_URL" \
                 -H "Authorization: Bearer ${LOG_INGEST_TOKEN}" \
                 -F "${LOG_FIELD_JOB_NAME}=${JOB_NAME}" \
@@ -324,7 +324,7 @@ def postConsoleLog() {
                 -F "${LOG_FIELD_COMMIT_SHA}=${LOG_COMMIT_SHA}" \
                 -F "${LOG_FIELD_FILE}=@${CONSOLE_LOG}") || true
             else
-              HTTP_CODE=$(curl -s -o ingest_response.body -w "%{http_code}" \
+              HTTP_CODE=$(curl -sS -o ingest_response.body -w "%{http_code}" \
                 -X POST "$LOG_INGEST_URL" \
                 -F "${LOG_FIELD_JOB_NAME}=${JOB_NAME}" \
                 -F "${LOG_FIELD_BUILD_NUMBER}=${BUILD_NUMBER}" \
@@ -353,7 +353,7 @@ def postConsoleLog() {
             }
 
             $curlArgs = @(
-                "-s", "-o", "ingest_response.body", "-w", "%{http_code}",
+                "-s", "-S", "-o", "ingest_response.body", "-w", "%{http_code}",
                 "-X", "POST", $env:LOG_INGEST_URL,
                 "-F", "$($env:LOG_FIELD_JOB_NAME)=$($env:JOB_NAME)",
                 "-F", "$($env:LOG_FIELD_BUILD_NUMBER)=$($env:BUILD_NUMBER)",

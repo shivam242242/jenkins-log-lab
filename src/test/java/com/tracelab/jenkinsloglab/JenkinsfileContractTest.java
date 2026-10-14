@@ -20,7 +20,7 @@ class JenkinsfileContractTest {
     static void loadJenkinsfile() throws IOException {
         Path path = Path.of("Jenkinsfile");
         assertTrue(Files.exists(path), "Jenkinsfile must exist at the project root (Jenkins workspace checkout)");
-        jenkinsfile = Files.readString(path);
+        jenkinsfile = Files.readString(path).replace("\r\n", "\n");
     }
 
     @Test
@@ -71,6 +71,8 @@ class JenkinsfileContractTest {
         assertTrue(jenkinsfile.contains("forwardConsoleLogWithoutChangingBuildResult()"));
         assertTrue(jenkinsfile.contains("catchError(buildResult: originalResult, stageResult: 'SUCCESS')"),
                 "Forwarding errors must preserve the result recorded before forwarding");
+        assertTrue(jenkinsfile.contains("curl -sS") && jenkinsfile.contains("\"-S\""),
+                "Capture and upload transport failures must remain visible in the Jenkins console");
         assertFalse(jenkinsfile.contains("node {"), "Forwarding must not request a second executor");
     }
 
