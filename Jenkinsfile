@@ -74,6 +74,11 @@ pipeline {
         DEFAULT_MAVEN_TOOL = 'Maven-3.9.11'
     }
 
+    options {
+        // Run checkout in the explicit stage so its post handler still has the agent Launcher.
+        skipDefaultCheckout(true)
+    }
+
     tools {
         maven 'Maven-3.9.11'
     }
@@ -82,6 +87,13 @@ pipeline {
         stage('Checkout') {
             steps {
                 checkout scm
+            }
+            post {
+                unsuccessful {
+                    script {
+                        forwardConsoleLogWithoutChangingBuildResult()
+                    }
+                }
             }
         }
 
@@ -111,6 +123,13 @@ pipeline {
                     }
                 }
             }
+            post {
+                unsuccessful {
+                    script {
+                        forwardConsoleLogWithoutChangingBuildResult()
+                    }
+                }
+            }
         }
 
         stage('Package') {
@@ -125,18 +144,21 @@ pipeline {
                     }
                 }
             }
-        }
-    }
-
-    post {
-        always {
-            script {
-                def originalResult = currentBuild.currentResult ?: 'SUCCESS'
-                catchError(buildResult: originalResult, stageResult: 'SUCCESS') {
-                    forwardConsoleLog()
+            post {
+                always {
+                    script {
+                        forwardConsoleLogWithoutChangingBuildResult()
+                    }
                 }
             }
         }
+    }
+}
+
+def forwardConsoleLogWithoutChangingBuildResult() {
+    def originalResult = currentBuild.currentResult ?: 'SUCCESS'
+    catchError(buildResult: originalResult, stageResult: 'SUCCESS') {
+        forwardConsoleLog()
     }
 }
 

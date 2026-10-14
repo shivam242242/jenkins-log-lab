@@ -49,6 +49,32 @@ class JenkinsfileContractTest {
     }
 
     @Test
+    void forwardsFromTheCurrentStageAgentWithoutAllocatingAnotherNode() {
+        assertTrue(jenkinsfile.contains("skipDefaultCheckout(true)"),
+                "SCM checkout must run in the explicit stage so its failure post handler retains the agent context");
+        int checkoutStart = jenkinsfile.indexOf("stage('Checkout')");
+        int buildStart = jenkinsfile.indexOf("stage('Build and Test')");
+        int packageStart = jenkinsfile.indexOf("stage('Package')");
+        assertTrue(checkoutStart >= 0 && buildStart > checkoutStart && packageStart > buildStart,
+                "Checkout, Build and Test, and Package stages must remain present");
+
+        String checkoutStage = jenkinsfile.substring(checkoutStart, buildStart);
+        String buildStage = jenkinsfile.substring(buildStart, packageStart);
+        String packageStage = jenkinsfile.substring(packageStart, jenkinsfile.indexOf("\n    }\n}", packageStart));
+
+        assertTrue(checkoutStage.contains("post {") && checkoutStage.contains("unsuccessful {"),
+                "Checkout failures must forward from that stage's post context");
+        assertTrue(buildStage.contains("post {") && buildStage.contains("unsuccessful {"),
+                "Build and Test failures must forward from that stage's post context");
+        assertTrue(packageStage.contains("post {") && packageStage.contains("always {"),
+                "The final stage must forward after successful or failed packaging");
+        assertTrue(jenkinsfile.contains("forwardConsoleLogWithoutChangingBuildResult()"));
+        assertTrue(jenkinsfile.contains("catchError(buildResult: originalResult, stageResult: 'SUCCESS')"),
+                "Forwarding errors must preserve the result recorded before forwarding");
+        assertFalse(jenkinsfile.contains("node {"), "Forwarding must not request a second executor");
+    }
+
+    @Test
     void avoidsBackendSpecificAndUnsafeAssumptions() {
         String lower = jenkinsfile.toLowerCase();
         // Must not contain hardcoded backend-specific names (case-insensitive).

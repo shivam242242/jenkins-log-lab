@@ -161,11 +161,20 @@ class ConsoleLogIngestionTest {
         @DisplayName("B1: Jenkinsfile captures console output even when build fails")
         void jenkinsfileCapturesLogOnFailure() throws IOException {
             String jf = Files.readString(Path.of("Jenkinsfile"));
-            // The post { always { } } block must call forwardConsoleLog regardless of build result.
-            assertTrue(jf.contains("post {"), "Must have a post block");
-            assertTrue(jf.contains("always {"), "forwardConsoleLog must run in the always block");
-            assertTrue(jf.contains("forwardConsoleLog()"),
-                    "forwardConsoleLog must be called in the always block");
+            // Failed stages forward while their Declarative stage agent context is active.
+            assertTrue(jf.contains("stage('Checkout')") && jf.contains("stage('Build and Test')"));
+            assertTrue(jf.contains("skipDefaultCheckout(true)"),
+                    "The implicit checkout must be disabled so the explicit Checkout stage can handle failures");
+            assertTrue(jf.contains("unsuccessful {"),
+                    "Checkout and build failures must be handled by stage-level post conditions");
+            assertTrue(jf.contains("stage('Package')") && jf.contains("always {"),
+                    "The final stage must forward logs for successful builds too");
+            assertTrue(jf.contains("forwardConsoleLogWithoutChangingBuildResult()"),
+                    "Stage finalizers must invoke the result-preserving forwarding wrapper");
+            assertFalse(jf.contains("node {"),
+                    "Forwarding must use the existing agent instead of requesting another executor");
+            assertTrue(jf.contains("catchError(buildResult: originalResult, stageResult: 'SUCCESS')"),
+                    "Forwarding failure must not replace the original build result");
         }
 
         @Test
