@@ -36,6 +36,14 @@ class JenkinsfileContractTest {
     void logForwardingIsOptionalAndConfigurable() {
         assertTrue(jenkinsfile.contains("LOG_INGEST_URL"));
         assertTrue(jenkinsfile.contains("LOG_INGEST_CREDENTIAL_ID"));
+        assertTrue(jenkinsfile.contains("firstNonBlank(params.LOG_INGEST_URL, env.LOG_INGEST_URL)"),
+                "The ingest URL must come from Jenkins-managed environment configuration");
+        assertTrue(jenkinsfile.contains("firstNonBlank(params.LOG_INGEST_CREDENTIAL_ID, env.LOG_INGEST_CREDENTIAL_ID)"),
+                "The credential ID must come from Jenkins-managed environment configuration");
+        assertFalse(jenkinsfile.contains("name: 'LOG_INGEST_URL'"),
+                "An empty declared parameter must not override Jenkins-managed URL configuration");
+        assertFalse(jenkinsfile.contains("name: 'LOG_INGEST_CREDENTIAL_ID'"),
+                "An empty declared parameter must not override Jenkins-managed credential configuration");
         // Separate credential for authenticating against the Jenkins consoleText endpoint.
         assertTrue(jenkinsfile.contains("LOG_CONSOLE_CREDENTIAL_ID"));
         assertTrue(jenkinsfile.contains("withCredentials"));

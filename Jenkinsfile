@@ -18,16 +18,6 @@ pipeline {
             description: 'Optional Jenkins Global Tool Configuration Maven installation name. Leave empty to use Maven-3.9.11. Also reads env MAVEN_TOOL.'
         )
         string(
-            name: 'LOG_INGEST_URL',
-            defaultValue: '',
-            description: 'Optional ingest URL. Leave empty to skip upload. Also reads env LOG_INGEST_URL.'
-        )
-        string(
-            name: 'LOG_INGEST_CREDENTIAL_ID',
-            defaultValue: '',
-            description: 'Optional Jenkins Secret Text credential ID for the ingest backend. Also reads env LOG_INGEST_CREDENTIAL_ID.'
-        )
-        string(
             name: 'LOG_CONSOLE_CREDENTIAL_ID',
             defaultValue: '',
             description: 'Optional Jenkins Username/Password credential ID used to authenticate against the Jenkins consoleText endpoint. Leave empty for unauthenticated access. Also reads env LOG_CONSOLE_CREDENTIAL_ID.'
