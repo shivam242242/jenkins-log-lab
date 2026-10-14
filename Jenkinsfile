@@ -25,7 +25,12 @@ pipeline {
         string(
             name: 'LOG_INGEST_CREDENTIAL_ID',
             defaultValue: '',
-            description: 'Optional Jenkins Secret Text credential ID. Also reads env LOG_INGEST_CREDENTIAL_ID.'
+            description: 'Optional Jenkins Secret Text credential ID for the ingest backend. Also reads env LOG_INGEST_CREDENTIAL_ID.'
+        )
+        string(
+            name: 'LOG_CONSOLE_CREDENTIAL_ID',
+            defaultValue: '',
+            description: 'Optional Jenkins Username/Password credential ID used to authenticate against the Jenkins consoleText endpoint. Leave empty for unauthenticated access. Also reads env LOG_CONSOLE_CREDENTIAL_ID.'
         )
         string(
             name: 'LOG_FIELD_JOB_NAME',
@@ -137,10 +142,15 @@ pipeline {
 
 def forwardConsoleLog() {
     def ingestUrl = firstNonBlank(params.LOG_INGEST_URL, env.LOG_INGEST_URL)
-    def credId = firstNonBlank(params.LOG_INGEST_CREDENTIAL_ID, env.LOG_INGEST_CREDENTIAL_ID)
+    def ingestCredId = firstNonBlank(params.LOG_INGEST_CREDENTIAL_ID, env.LOG_INGEST_CREDENTIAL_ID)
+    def consoleCredId = firstNonBlank(params.LOG_CONSOLE_CREDENTIAL_ID, env.LOG_CONSOLE_CREDENTIAL_ID)
     def consoleLog = "jenkins-console-${env.BUILD_NUMBER}.log"
 
-    captureConsoleLog(consoleLog)
+    // Capture console output; abort forwarding if capture failed or produced no real content.
+    boolean captured = captureConsoleLog(consoleLog, consoleCredId)
+    if (!captured) {
+        error('[log-forward] Console log capture failed or returned empty content. Forwarding aborted.')
+    }
 
     if (!ingestUrl) {
         echo '[log-forward] LOG_INGEST_URL is not set; console log was captured in the workspace and upload was skipped.'
@@ -162,8 +172,8 @@ def forwardConsoleLog() {
         "LOG_FIELD_FILE=${firstNonBlank(params.LOG_FIELD_FILE, env.LOG_FIELD_FILE, 'file')}"
     ]
 
-    if (credId) {
-        withCredentials([string(credentialsId: credId, variable: 'LOG_INGEST_TOKEN')]) {
+    if (ingestCredId) {
+        withCredentials([string(credentialsId: ingestCredId, variable: 'LOG_INGEST_TOKEN')]) {
             withEnv(uploadEnv) {
                 postConsoleLog()
             }
@@ -175,44 +185,110 @@ def forwardConsoleLog() {
     }
 }
 
-def captureConsoleLog(String consoleLog) {
-    withEnv(["CONSOLE_LOG=${consoleLog}"]) {
-        if (isUnix()) {
-            sh '''
-                set +e
-                if [ -n "$BUILD_URL" ]; then
-                  curl -s -k --globoff "${BUILD_URL}consoleText" > "$CONSOLE_LOG" 2>/dev/null
-                fi
-                if [ ! -s "$CONSOLE_LOG" ]; then
-                  echo "[INFO] Build ${JOB_NAME} #${BUILD_NUMBER} completed with status: ${currentBuild:-unknown}" > "$CONSOLE_LOG"
-                fi
-                exit 0
-            '''
+// Captures the Jenkins console text for this build to the given file.
+// Returns true when a non-empty log file was written, false on failure.
+// Accepts an optional Jenkins Username/Password credentialsId for authentication.
+def captureConsoleLog(String consoleLog, String consoleCredId = '') {
+    boolean success = false
+    if (isUnix()) {
+        def curlAuthArgs = ''
+        if (consoleCredId) {
+            withCredentials([usernamePassword(credentialsId: consoleCredId, usernameVariable: 'JENKINS_USER', passwordVariable: 'JENKINS_TOKEN')]) {
+                curlAuthArgs = "-u \"\${JENKINS_USER}:\${JENKINS_TOKEN}\""
+                success = _captureUnix(consoleLog, curlAuthArgs)
+            }
         } else {
-            powershell '''
-                $ErrorActionPreference = "Continue"
-                $ProgressPreference = "SilentlyContinue"
-                $ok = $false
-                if ($env:BUILD_URL) {
-                    curl.exe -s -k --globoff "$($env:BUILD_URL)consoleText" -o $env:CONSOLE_LOG
-                    if ((Test-Path $env:CONSOLE_LOG) -and ((Get-Item $env:CONSOLE_LOG).Length -gt 0)) {
-                        $ok = $true
-                    }
-                }
-                if (-not $ok) {
-                    Set-Content -Path $env:CONSOLE_LOG -Value "[INFO] Build $($env:JOB_NAME) #$($env:BUILD_NUMBER) consoleText was empty or unavailable."
-                }
-                exit 0
-            '''
+            success = _captureUnix(consoleLog, '')
         }
+    } else {
+        if (consoleCredId) {
+            withCredentials([usernamePassword(credentialsId: consoleCredId, usernameVariable: 'JENKINS_USER', passwordVariable: 'JENKINS_TOKEN')]) {
+                success = _captureWindows(consoleLog, true)
+            }
+        } else {
+            success = _captureWindows(consoleLog, false)
+        }
+    }
+    return success
+}
+
+def _captureUnix(String consoleLog, String curlAuthArgs) {
+    withEnv(["CONSOLE_LOG=${consoleLog}"]) {
+        def exitCode = sh(returnStatus: true, script: """
+            set -e
+            HTTP_CODE=\$(curl -s -k --globoff -w "%{http_code}" -o "\${CONSOLE_LOG}" ${curlAuthArgs} "\${BUILD_URL}consoleText")
+            if [ "\$HTTP_CODE" != "200" ]; then
+              echo "[log-forward] consoleText fetch returned HTTP \$HTTP_CODE; discarding." >&2
+              rm -f "\${CONSOLE_LOG}"
+              exit 1
+            fi
+            if [ ! -s "\${CONSOLE_LOG}" ]; then
+              echo "[log-forward] consoleText response was empty; discarding." >&2
+              rm -f "\${CONSOLE_LOG}"
+              exit 1
+            fi
+        """.stripIndent(), label: 'Capture Jenkins console log')
+        return (exitCode == 0)
+    }
+}
+
+def _captureWindows(String consoleLog, boolean useCredentials) {
+    def scriptBody
+    if (useCredentials) {
+        scriptBody = '''
+            $ErrorActionPreference = "Stop"
+            $ProgressPreference = "SilentlyContinue"
+            $curlArgs = @("-s", "-k", "--globoff", "-w", "%{http_code}", "-o", $env:CONSOLE_LOG,
+                          "-u", "$($env:JENKINS_USER):$($env:JENKINS_TOKEN)",
+                          "$($env:BUILD_URL)consoleText")
+            $httpCode = & curl.exe @curlArgs
+            if ($httpCode -ne "200") {
+                Write-Error "[log-forward] consoleText fetch returned HTTP $httpCode; discarding."
+                Remove-Item -Force -ErrorAction SilentlyContinue $env:CONSOLE_LOG
+                exit 1
+            }
+            if (-not (Test-Path $env:CONSOLE_LOG) -or (Get-Item $env:CONSOLE_LOG).Length -eq 0) {
+                Write-Error "[log-forward] consoleText response was empty; discarding."
+                Remove-Item -Force -ErrorAction SilentlyContinue $env:CONSOLE_LOG
+                exit 1
+            }
+            exit 0
+        '''
+    } else {
+        scriptBody = '''
+            $ErrorActionPreference = "Stop"
+            $ProgressPreference = "SilentlyContinue"
+            $curlArgs = @("-s", "-k", "--globoff", "-w", "%{http_code}", "-o", $env:CONSOLE_LOG,
+                          "$($env:BUILD_URL)consoleText")
+            $httpCode = & curl.exe @curlArgs
+            if ($httpCode -ne "200") {
+                Write-Error "[log-forward] consoleText fetch returned HTTP $httpCode; discarding."
+                Remove-Item -Force -ErrorAction SilentlyContinue $env:CONSOLE_LOG
+                exit 1
+            }
+            if (-not (Test-Path $env:CONSOLE_LOG) -or (Get-Item $env:CONSOLE_LOG).Length -eq 0) {
+                Write-Error "[log-forward] consoleText response was empty; discarding."
+                Remove-Item -Force -ErrorAction SilentlyContinue $env:CONSOLE_LOG
+                exit 1
+            }
+            exit 0
+        '''
+    }
+    withEnv(["CONSOLE_LOG=${consoleLog}"]) {
+        def exitCode = powershell(returnStatus: true, script: scriptBody, label: 'Capture Jenkins console log')
+        return (exitCode == 0)
     }
 }
 
 def postConsoleLog() {
     if (isUnix()) {
         sh '''
+            set -e
             set +x
-            set +e
+            if [ ! -s "$CONSOLE_LOG" ]; then
+              echo "[log-forward] Console log file is missing or empty; aborting POST." >&2
+              exit 1
+            fi
             HTTP_CODE="000"
             if [ -n "$LOG_INGEST_TOKEN" ]; then
               HTTP_CODE=$(curl -s -o ingest_response.body -w "%{http_code}" \
@@ -224,7 +300,7 @@ def postConsoleLog() {
                 -F "${LOG_FIELD_BUILD_URL}=${BUILD_URL}" \
                 -F "${LOG_FIELD_REPO_URL}=${LOG_REPO_URL}" \
                 -F "${LOG_FIELD_COMMIT_SHA}=${LOG_COMMIT_SHA}" \
-                -F "${LOG_FIELD_FILE}=@${CONSOLE_LOG}") || HTTP_CODE="000"
+                -F "${LOG_FIELD_FILE}=@${CONSOLE_LOG}") || true
             else
               HTTP_CODE=$(curl -s -o ingest_response.body -w "%{http_code}" \
                 -X POST "$LOG_INGEST_URL" \
@@ -234,16 +310,26 @@ def postConsoleLog() {
                 -F "${LOG_FIELD_BUILD_URL}=${BUILD_URL}" \
                 -F "${LOG_FIELD_REPO_URL}=${LOG_REPO_URL}" \
                 -F "${LOG_FIELD_COMMIT_SHA}=${LOG_COMMIT_SHA}" \
-                -F "${LOG_FIELD_FILE}=@${CONSOLE_LOG}") || HTTP_CODE="000"
+                -F "${LOG_FIELD_FILE}=@${CONSOLE_LOG}") || true
             fi
-            echo "[log-forward] POST finished with HTTP ${HTTP_CODE} (non-fatal)."
             rm -f ingest_response.body
-            exit 0
+            if echo "$HTTP_CODE" | grep -q "^2"; then
+                echo "[log-forward] POST succeeded with HTTP ${HTTP_CODE}."
+            else
+                echo "[log-forward] POST failed with HTTP ${HTTP_CODE} (non-fatal)." >&2
+                exit 1
+            fi
         '''
     } else {
         powershell '''
             $ErrorActionPreference = "Continue"
             $ProgressPreference = "SilentlyContinue"
+
+            if (-not (Test-Path $env:CONSOLE_LOG) -or (Get-Item $env:CONSOLE_LOG).Length -eq 0) {
+                Write-Error "[log-forward] Console log file is missing or empty; aborting POST."
+                exit 1
+            }
+
             $curlArgs = @(
                 "-s", "-o", "ingest_response.body", "-w", "%{http_code}",
                 "-X", "POST", $env:LOG_INGEST_URL,
@@ -256,7 +342,8 @@ def postConsoleLog() {
                 "-F", "$($env:LOG_FIELD_FILE)=@$($env:CONSOLE_LOG)"
             )
             if ($env:LOG_INGEST_TOKEN) {
-                $curlArgs = @("-H", "Authorization: Bearer $($env:LOG_INGEST_TOKEN)") + $curlArgs
+                # Pass the full header value as a single array element; curl.exe receives it as one argument.
+                $curlArgs += @("-H", "Authorization: Bearer $($env:LOG_INGEST_TOKEN)")
             }
             $httpCode = "000"
             try {
@@ -264,9 +351,14 @@ def postConsoleLog() {
             } catch {
                 $httpCode = "000"
             }
-            Write-Host "[log-forward] POST finished with HTTP $httpCode (non-fatal)."
             Remove-Item -Force -ErrorAction SilentlyContinue ingest_response.body
-            exit 0
+            if ($httpCode -match "^2") {
+                Write-Host "[log-forward] POST succeeded with HTTP $httpCode."
+                exit 0
+            } else {
+                Write-Error "[log-forward] POST failed with HTTP $httpCode (non-fatal)."
+                exit 1
+            }
         '''
     }
 }
