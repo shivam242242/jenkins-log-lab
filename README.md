@@ -130,3 +130,5 @@ Point `LOG_INGEST_URL` at that API’s ingest endpoint. If it expects different 
 | Failed Maven build flipped to SUCCESS | Should not happen; upload scripts always `exit 0` and `catchError` keeps the original result. |
 
 A live Jenkins controller is required to confirm checkout, Windows `bat`/`powershell`, consoleText capture, and ingest. `mvn test` / `mvn package` only verify the Spring Boot app and Jenkinsfile text contract.
+
+TRACE integration verification test
