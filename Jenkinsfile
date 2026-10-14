@@ -86,7 +86,11 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                checkout scm
+                script {
+                    def checkoutMetadata = checkout scm
+                    env.LOG_REPO_URL = firstNonBlank(checkoutMetadata?.GIT_URL, checkoutMetadata?.GIT_URL_1, env.GIT_URL)
+                    env.LOG_COMMIT_SHA = firstNonBlank(checkoutMetadata?.GIT_COMMIT, env.GIT_COMMIT)
+                }
             }
             post {
                 unsuccessful {
@@ -183,8 +187,8 @@ def forwardConsoleLog() {
         "CONSOLE_LOG=${consoleLog}",
         "LOG_INGEST_URL=${ingestUrl}",
         "LOG_BUILD_STATUS=${currentBuild.currentResult ?: ''}",
-        "LOG_REPO_URL=${env.GIT_URL ?: ''}",
-        "LOG_COMMIT_SHA=${env.GIT_COMMIT ?: ''}",
+        "LOG_REPO_URL=${firstNonBlank(env.LOG_REPO_URL, env.GIT_URL)}",
+        "LOG_COMMIT_SHA=${firstNonBlank(env.LOG_COMMIT_SHA, env.GIT_COMMIT)}",
         "LOG_FIELD_JOB_NAME=${firstNonBlank(params.LOG_FIELD_JOB_NAME, env.LOG_FIELD_JOB_NAME, 'job_name')}",
         "LOG_FIELD_BUILD_NUMBER=${firstNonBlank(params.LOG_FIELD_BUILD_NUMBER, env.LOG_FIELD_BUILD_NUMBER, 'build_number')}",
         "LOG_FIELD_BUILD_STATUS=${firstNonBlank(params.LOG_FIELD_BUILD_STATUS, env.LOG_FIELD_BUILD_STATUS, 'build_status')}",

@@ -64,6 +64,11 @@ class JenkinsfileContractTest {
 
         assertTrue(checkoutStage.contains("post {") && checkoutStage.contains("unsuccessful {"),
                 "Checkout failures must forward from that stage's post context");
+        assertTrue(checkoutStage.contains("def checkoutMetadata = checkout scm"),
+                "Successful SCM checkout metadata must be retained for log forwarding");
+        assertTrue(checkoutStage.contains("checkoutMetadata?.GIT_URL")
+                        && checkoutStage.contains("checkoutMetadata?.GIT_COMMIT"),
+                "Repository URL and commit SHA must come from the checkout result when available");
         assertTrue(buildStage.contains("post {") && buildStage.contains("unsuccessful {"),
                 "Build and Test failures must forward from that stage's post context");
         assertTrue(packageStage.contains("post {") && packageStage.contains("always {"),
